@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
 
 function Header() {
+  const { user, setUser } = useAuth()
   const [cartCount, setCartCount] = useState(0)
   const navigate = useNavigate()
 
@@ -41,135 +43,83 @@ function Header() {
     navigate('/cart')
   }
 
+  const handleLogout = () => {
+    setUser(null) // TODO: Add Firebase signOut
+    navigate('/login')
+  }
+
+  // --- Styles ---
   const headerStyle = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '1.5rem 2rem',
-    backgroundColor: '#ffffff',
-    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-    borderBottom: '1px solid #e9ecef',
-    position: 'sticky',
-    top: 0,
-    zIndex: 1000
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '1rem 2.5vw', background: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.07)',
+    borderBottom: '1px solid #ececec', position: 'sticky', top: 0, zIndex: 1000
   }
-
   const logoStyle = {
-    fontSize: '2rem',
-    fontWeight: 'bold',
-    color: '#e74c3c',
-    textDecoration: 'none',
-    transition: 'color 0.3s ease'
+    display: 'flex', alignItems: 'center', gap: 8, fontSize: '2rem', fontWeight: 700,
+    color: '#e74c3c', textDecoration: 'none', letterSpacing: 1
   }
-
-  const contactStyle = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.5rem',
-    color: '#666',
-    fontSize: '0.9rem',
-    backgroundColor: '#f8f9fa',
-    padding: '0.5rem 1rem',
-    borderRadius: '8px',
-    border: '1px solid #e9ecef'
+  const navStyle = {
+    display: 'flex', alignItems: 'center', gap: '1.5rem',
+    fontSize: '1.05rem', fontWeight: 500
   }
-
-  const emailStyle = {
-    color: '#3498db',
-    textDecoration: 'none',
-    fontWeight: '500',
-    transition: 'color 0.3s ease'
+  const navLinkStyle = {
+    color: '#2c3e50', textDecoration: 'none', padding: '0.4rem 1.1rem', borderRadius: 20,
+    transition: 'background 0.2s, color 0.2s', fontWeight: 500
   }
-
-  const cartContainerStyle = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.75rem',
-    cursor: 'pointer',
-    padding: '0.75rem 1.25rem',
-    borderRadius: '12px',
-    backgroundColor: '#f8f9fa',
-    transition: 'all 0.3s ease',
-    border: '1px solid #e9ecef',
-    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
+  const navLinkActive = { ...navLinkStyle, background: '#f8f9fa', color: '#e74c3c' }
+  const cartBtnStyle = {
+    display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+    background: '#f8f9fa', border: '1px solid #ececec', borderRadius: 24,
+    padding: '0.5rem 1.2rem', fontWeight: 600, fontSize: '1.05rem',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.04)', position: 'relative', transition: 'all 0.2s'
   }
-
-  const cartIconStyle = {
-    fontSize: '1.4rem',
-    color: '#e74c3c'
-  }
-
-  const cartTextStyle = {
-    fontSize: '1rem',
-    fontWeight: '600',
-    color: '#2c3e50'
-  }
-
   const cartCountStyle = {
-    backgroundColor: '#e74c3c',
-    color: 'white',
-    borderRadius: '50%',
-    width: '24px',
-    height: '24px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '0.8rem',
-    fontWeight: 'bold',
-    boxShadow: '0 2px 4px rgba(231, 76, 60, 0.3)',
-    animation: cartCount > 0 ? 'pulse 0.6s ease-in-out' : 'none'
+    background: '#e74c3c', color: 'white', borderRadius: '50%', minWidth: 22, height: 22,
+    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700,
+    marginLeft: 2, boxShadow: '0 2px 4px rgba(231,76,60,0.18)'
   }
-
-  const pulseAnimation = `
-    @keyframes pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.2); }
-      100% { transform: scale(1); }
-    }
-  `
+  const userBtnStyle = {
+    display: 'flex', alignItems: 'center', gap: 6, background: '#f8f9fa',
+    border: '1px solid #ececec', borderRadius: 20, padding: '0.4rem 1rem',
+    fontWeight: 500, cursor: 'pointer', color: '#2c3e50', fontSize: '1rem', transition: 'all 0.2s'
+  }
 
   return (
-    <>
-      <style>{pulseAnimation}</style>
-      <header style={headerStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
-          <a href="/" style={logoStyle} onMouseEnter={(e) => {
-            e.target.style.color = '#c0392b'
-          }} onMouseLeave={(e) => {
-            e.target.style.color = '#e74c3c'
-          }}>
-            Taaza
-          </a>
-          <div style={contactStyle}>
-            <span>📧</span>
-            <span>Contact us:</span>
-            <a href="mailto:info@taaza.com" style={emailStyle} onMouseEnter={(e) => {
-              e.target.style.color = '#2980b9'
-            }} onMouseLeave={(e) => {
-              e.target.style.color = '#3498db'
-            }}>
-              info@taaza.com
-            </a>
-          </div>
+    <header style={headerStyle}>
+      {/* Logo */}
+      <Link to="/" style={logoStyle}>
+        <span role="img" aria-label="logo">🍗</span> Taaza
+      </Link>
+
+      {/* Navigation */}
+      <nav style={navStyle}>
+        <Link to="/" style={navLinkStyle}>Home</Link>
+        <Link to="/orders" style={navLinkStyle}>Orders</Link>
+        <a href="mailto:info@taaza.com" style={navLinkStyle}>Contact</a>
+      </nav>
+
+      {/* Right: Cart and User */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+        <div style={cartBtnStyle} onClick={handleCartClick} title="View Cart">
+          <span role="img" aria-label="cart">🛒</span>
+          <span>Cart</span>
+          <span style={cartCountStyle}>{cartCount}</span>
         </div>
-        
-        <div style={cartContainerStyle} 
-          onClick={handleCartClick}
-          onMouseEnter={(e) => {
-            e.target.style.backgroundColor = '#e9ecef'
-            e.target.style.transform = 'translateY(-2px)'
-            e.target.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.1)'
-          }} onMouseLeave={(e) => {
-            e.target.style.backgroundColor = '#f8f9fa'
-            e.target.style.transform = 'translateY(0)'
-            e.target.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.05)'
-          }}>
-          <span style={cartIconStyle}>🛒</span>
-          <span style={cartTextStyle}>My Cart</span>
-          <div style={cartCountStyle}>{cartCount}</div>
-        </div>
-      </header>
-    </>
+        {user ? (
+          <>
+            <button style={userBtnStyle} onClick={handleLogout} title="Logout">
+              <span role="img" aria-label="user">👤</span>
+              Logout
+            </button>
+          </>
+        ) : (
+          <Link to="/login" style={userBtnStyle} title="Login">
+            <span role="img" aria-label="login">🔑</span>
+            Login
+          </Link>
+        )}
+      </div>
+    </header>
   )
 }
 

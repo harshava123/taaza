@@ -1,340 +1,187 @@
-import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { db, storage } from '../../firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import emailjs from 'emailjs-com';
 
-function Cart() {
-  const [cartItems, setCartItems] = useState([])
-  const navigate = useNavigate()
+function Cart(props) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [cartItems, setCartItems] = useState([]);
 
   useEffect(() => {
-    const savedCart = localStorage.getItem('taazaCart')
+    if (!user || user.type !== 'customer') {
+      navigate('/login');
+    }
+  }, [user, navigate]);
+
+  useEffect(() => {
+    const savedCart = localStorage.getItem('taazaCart');
     if (savedCart) {
-      setCartItems(JSON.parse(savedCart))
+      setCartItems(JSON.parse(savedCart));
     }
-  }, [])
+  }, []);
 
-  const updateQuantity = (itemId, newQuantity) => {
-    if (newQuantity <= 0) {
-      removeItem(itemId)
-      return
+  const updateQuantity = (id, weight, quantity) => {
+    const updated = cartItems.map(item =>
+      item.id === id && item.weight === weight ? { ...item, quantity } : item
+    ).filter(item => item.quantity > 0);
+    setCartItems(updated);
+    localStorage.setItem('taazaCart', JSON.stringify(updated));
+  };
+
+  const removeItem = (id, weight) => {
+    const updated = cartItems.filter(item => !(item.id === id && item.weight === weight));
+    setCartItems(updated);
+    localStorage.setItem('taazaCart', JSON.stringify(updated));
+  };
+
+  const total = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+  const handleCheckout = async () => {
+    console.log('Checkout started');
+    console.log('User:', user);
+    console.log('Cart items:', cartItems);
+    // Mock payment: simulate payment success
+    try {
+      // Store order in Firestore
+      console.log('Saving order to Firestore...');
+      const orderRef = await addDoc(collection(db, 'orders'), {
+        cart: cartItems,
+        user: { name: user?.name, phone: user?.phone, email: user?.email },
+        paymentId: 'MOCK_PAYMENT_' + Date.now(),
+        status: 'paid',
+        createdAt: serverTimestamp(),
+      });
+      console.log('Order saved:', orderRef.id);
+
+      // Generate e-bill HTML
+      const billHtml = `
+        <div style='font-family:sans-serif;padding:24px;'>
+          <h2 style='color:#27ae60;'>Tazza Chicken - E-Bill</h2>
+          <p><strong>Name:</strong> ${user?.name}</p>
+          <p><strong>Phone:</strong> ${user?.phone}</p>
+          <p><strong>Email:</strong> ${user?.email}</p>
+          <p><strong>Order ID:</strong> ${orderRef.id}</p>
+          <table border='1' cellpadding='8' cellspacing='0' style='margin-top:16px;width:100%;'>
+            <thead><tr><th>Item</th><th>Weight</th><th>Qty</th><th>Price</th></tr></thead>
+            <tbody>
+              ${cartItems.map(item => `<tr><td>${item.name}</td><td>${item.weight}g</td><td>${item.quantity}</td><td>₹${item.price * item.quantity}</td></tr>`).join('')}
+            </tbody>
+          </table>
+          <p style='margin-top:16px;'><strong>Total:</strong> ₹${cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0)}</p>
+          <p style='margin-top:8px;'>Thank you for ordering from Tazza Chicken!</p>
+        </div>
+      `;
+      console.log('E-bill HTML generated');
+
+      // Convert HTML to PDF (html2pdf.js)
+      console.log('Generating PDF...');
+      const pdfBlob = await new Promise((resolve, reject) => {
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        const doc = iframe.contentWindow.document;
+        doc.open();
+        doc.write(billHtml);
+        doc.close();
+        iframe.onload = () => {
+          window.html2pdf()
+            .from(iframe.contentWindow.document.body)
+            .outputPdf('blob')
+            .then(blob => {
+              document.body.removeChild(iframe);
+              resolve(blob);
+            })
+            .catch(err => {
+              document.body.removeChild(iframe);
+              reject(err);
+            });
+        };
+      });
+      console.log('PDF generated');
+
+      // Upload PDF to Firebase Storage
+      console.log('Uploading PDF to Firebase Storage...');
+      const billRef = ref(storage, `bills/${orderRef.id}.pdf`);
+      await uploadBytes(billRef, pdfBlob, { contentType: 'application/pdf' });
+      const billUrl = await getDownloadURL(billRef);
+      console.log('PDF uploaded. Bill URL:', billUrl);
+
+      // Update order with e-bill URL
+      console.log('Updating order with bill URL...');
+      await orderRef.update({ billUrl });
+      console.log('Order updated with bill URL');
+
+      // Send e-bill link to customer email using EmailJS (frontend only)
+      if (user?.email && user?.name && billUrl) {
+        try {
+          console.log('Sending email to:', user.email, user.name, orderRef.id, billUrl);
+          emailjs.send(
+            'service_j66emek',
+            'template_p4j84qv',
+            {
+              to_email: user.email,
+              to_name: user.name,
+              order_id: orderRef.id,
+              bill_url: billUrl,
+              year: new Date().getFullYear(),
+            },
+            '7l18AEEBovnNx3Rnh'
+          );
+        } catch (emailErr) {
+          console.warn('EmailJS send failed:', emailErr);
+        }
+      } else {
+        console.warn('EmailJS not sent: missing user.email, user.name, or billUrl', user, billUrl);
+      }
+
+      // Clear cart
+      setCartItems([]);
+      localStorage.removeItem('taazaCart');
+      console.log('Cart cleared, navigating to order confirmation');
+      navigate(`/order-confirmation?orderId=${orderRef.id}`);
+    } catch (err) {
+      console.error('Checkout failed:', err);
+      alert('Order saving or bill generation failed! ' + (err.message || err));
     }
-
-    const updatedCart = cartItems.map(item => 
-      item.id === itemId ? { ...item, quantity: newQuantity } : item
-    )
-    setCartItems(updatedCart)
-    localStorage.setItem('taazaCart', JSON.stringify(updatedCart))
-  }
-
-  const removeItem = (itemId) => {
-    const updatedCart = cartItems.filter(item => item.id !== itemId)
-    setCartItems(updatedCart)
-    localStorage.setItem('taazaCart', JSON.stringify(updatedCart))
-  }
-
-  const clearCart = () => {
-    setCartItems([])
-    localStorage.removeItem('taazaCart')
-  }
-
-  const goToHome = () => {
-    navigate('/')
-  }
-
-  const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0)
-  const totalPrice = cartItems.reduce((total, item) => total + (item.price * item.quantity), 0)
-
-  const containerStyle = {
-    padding: '2rem',
-    backgroundColor: '#f8f9fa',
-    minHeight: '100vh'
-  }
-
-  const headerStyle = {
-    textAlign: 'center',
-    marginBottom: '2rem'
-  }
-
-  const titleStyle = {
-    fontSize: '2.5rem',
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: '0.5rem'
-  }
-
-  const emptyCartStyle = {
-    textAlign: 'center',
-    padding: '3rem',
-    backgroundColor: 'white',
-    borderRadius: '12px',
-    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-  }
-
-  const emptyCartTextStyle = {
-    fontSize: '1.5rem',
-    color: '#666',
-    marginBottom: '1rem'
-  }
-
-  const cartItemStyle = {
-    backgroundColor: 'white',
-    borderRadius: '12px',
-    padding: '1.5rem',
-    marginBottom: '1rem',
-    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem'
-  }
-
-  const itemImageStyle = {
-    fontSize: '2.5rem'
-  }
-
-  const itemDetailsStyle = {
-    flex: 1
-  }
-
-  const itemNameStyle = {
-    fontSize: '1.2rem',
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: '0.5rem'
-  }
-
-  const itemPriceStyle = {
-    fontSize: '1.1rem',
-    color: '#e74c3c',
-    fontWeight: 'bold'
-  }
-
-  const quantityControlStyle = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.5rem'
-  }
-
-  const quantityButtonStyle = {
-    backgroundColor: '#3498db',
-    color: 'white',
-    border: 'none',
-    borderRadius: '50%',
-    width: '30px',
-    height: '30px',
-    fontSize: '1.2rem',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center'
-  }
-
-  const quantityDisplayStyle = {
-    fontSize: '1.1rem',
-    fontWeight: 'bold',
-    minWidth: '40px',
-    textAlign: 'center'
-  }
-
-  const removeButtonStyle = {
-    backgroundColor: '#e74c3c',
-    color: 'white',
-    border: 'none',
-    padding: '0.5rem 1rem',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '0.9rem'
-  }
-
-  const summaryStyle = {
-    backgroundColor: 'white',
-    borderRadius: '12px',
-    padding: '1.5rem',
-    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-    marginTop: '2rem'
-  }
-
-  const summaryRowStyle = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    marginBottom: '0.5rem',
-    fontSize: '1.1rem'
-  }
-
-  const totalStyle = {
-    fontSize: '1.3rem',
-    fontWeight: 'bold',
-    color: '#e74c3c',
-    borderTop: '2px solid #e9ecef',
-    paddingTop: '1rem',
-    marginTop: '1rem'
-  }
-
-  const checkoutButtonStyle = {
-    backgroundColor: '#27ae60',
-    color: 'white',
-    border: 'none',
-    padding: '1rem 2rem',
-    borderRadius: '8px',
-    fontSize: '1.1rem',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    width: '100%',
-    marginTop: '1rem'
-  }
-
-  const clearCartButtonStyle = {
-    backgroundColor: '#95a5a6',
-    color: 'white',
-    border: 'none',
-    padding: '0.5rem 1rem',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '0.9rem',
-    marginTop: '1rem'
-  }
-
-  const goToHomeButtonStyle = {
-    backgroundColor: '#3498db',
-    color: 'white',
-    border: 'none',
-    padding: '0.75rem 1.5rem',
-    borderRadius: '8px',
-    fontSize: '1rem',
-    fontWeight: '500',
-    cursor: 'pointer',
-    transition: 'background-color 0.3s ease',
-    marginTop: '1rem'
-  }
-
-  const headerContainerStyle = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '2rem'
-  }
-
-  const headerLeftStyle = {
-    textAlign: 'left'
-  }
+  };
 
   if (cartItems.length === 0) {
-    return (
-      <div style={containerStyle}>
-        <div style={headerContainerStyle}>
-          <div style={headerLeftStyle}>
-            <h1 style={titleStyle}>Shopping Cart</h1>
-          </div>
-          <button 
-            style={goToHomeButtonStyle}
-            onClick={goToHome}
-            onMouseEnter={(e) => e.target.style.backgroundColor = '#2980b9'}
-            onMouseLeave={(e) => e.target.style.backgroundColor = '#3498db'}
-          >
-            🏠 Go to Home
-          </button>
-        </div>
-        <div style={emptyCartStyle}>
-          <div style={emptyCartTextStyle}>🛒 Your cart is empty</div>
-          <p style={{ color: '#666' }}>Add some delicious non-veg items to get started!</p>
-          <button 
-            style={goToHomeButtonStyle}
-            onClick={goToHome}
-            onMouseEnter={(e) => e.target.style.backgroundColor = '#2980b9'}
-            onMouseLeave={(e) => e.target.style.backgroundColor = '#3498db'}
-          >
-            🏠 Continue Shopping
-          </button>
-        </div>
-      </div>
-    )
+    return <div className="p-8 text-center">Your cart is empty.</div>;
   }
 
   return (
-    <div style={containerStyle}>
-      <div style={headerContainerStyle}>
-        <div style={headerLeftStyle}>
-          <h1 style={titleStyle}>Shopping Cart</h1>
-          <p style={{ color: '#666' }}>Total Items: {totalItems}</p>
-        </div>
-        <button 
-          style={goToHomeButtonStyle}
-          onClick={goToHome}
-          onMouseEnter={(e) => e.target.style.backgroundColor = '#2980b9'}
-          onMouseLeave={(e) => e.target.style.backgroundColor = '#3498db'}
-        >
-          🏠 Go to Home
-        </button>
-      </div>
-
-      {/* Cart Items */}
+    <div className="p-8 max-w-2xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Your Cart</h1>
+      <div className="space-y-4 mb-6">
       {cartItems.map(item => (
-        <div key={item.id} style={cartItemStyle}>
-          <div style={itemImageStyle}>{item.image}</div>
-          <div style={itemDetailsStyle}>
-            <h3 style={itemNameStyle}>{item.name}</h3>
-            <div style={itemPriceStyle}>₹{item.price}/kg</div>
+          <div key={item.id + '-' + item.weight} className="flex items-center bg-white rounded shadow p-4">
+            <img src={item.imageUrl} alt={item.name} className="w-20 h-20 object-cover rounded mr-4" />
+            <div className="flex-1">
+              <h3 className="font-bold">{item.name}</h3>
+              <p className="text-sm text-gray-500">{item.weight}g</p>
+              <p>₹{item.price} x {item.quantity} = <span className="font-semibold">₹{item.price * item.quantity}</span></p>
+              <div className="flex items-center mt-2">
+                <button className="px-2 py-1 bg-gray-200 rounded" onClick={() => updateQuantity(item.id, item.weight, item.quantity - 1)} disabled={item.quantity <= 1}>-</button>
+                <span className="mx-2">{item.quantity}</span>
+                <button className="px-2 py-1 bg-gray-200 rounded" onClick={() => updateQuantity(item.id, item.weight, item.quantity + 1)}>+</button>
+                <button className="ml-4 text-red-600" onClick={() => removeItem(item.id, item.weight)}>Remove</button>
           </div>
-          <div style={quantityControlStyle}>
-            <button 
-              style={quantityButtonStyle}
-              onClick={() => updateQuantity(item.id, item.quantity - 1)}
-            >
-              -
-            </button>
-            <span style={quantityDisplayStyle}>{item.quantity}</span>
-            <button 
-              style={quantityButtonStyle}
-              onClick={() => updateQuantity(item.id, item.quantity + 1)}
-            >
-              +
-            </button>
-          </div>
-          <div style={{ textAlign: 'right', minWidth: '100px' }}>
-            <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#2c3e50' }}>
-              ₹{item.price * item.quantity}
-            </div>
-            <button 
-              style={removeButtonStyle}
-              onClick={() => removeItem(item.id)}
-            >
-              Remove
-            </button>
           </div>
         </div>
       ))}
-
-      {/* Cart Summary */}
-      <div style={summaryStyle}>
-        <h3 style={{ marginBottom: '1rem', color: '#2c3e50' }}>Cart Summary</h3>
-        <div style={summaryRowStyle}>
-          <span>Total Items:</span>
-          <span>{totalItems}</span>
         </div>
-        <div style={summaryRowStyle}>
-          <span>Subtotal:</span>
-          <span>₹{totalPrice}</span>
-        </div>
-        <div style={summaryRowStyle}>
-          <span>Delivery Fee:</span>
-          <span>₹50</span>
-        </div>
-        <div style={{ ...summaryRowStyle, ...totalStyle }}>
-          <span>Total:</span>
-          <span>₹{totalPrice + 50}</span>
-        </div>
-        
-        <button style={checkoutButtonStyle}>
-          Proceed to Checkout
-        </button>
-        
-        <button 
-          style={clearCartButtonStyle}
-          onClick={clearCart}
-        >
-          Clear Cart
-        </button>
+      <div className="flex justify-between items-center mb-6">
+        <span className="text-xl font-bold">Total:</span>
+        <span className="text-xl font-bold">₹{total}</span>
       </div>
+      <button className="w-full bg-green-600 text-white py-3 rounded text-lg font-semibold" onClick={handleCheckout}>
+        Checkout
+      </button>
     </div>
-  )
+  );
 }
 
-export default Cart 
+export default Cart; 
